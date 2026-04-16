@@ -1,0 +1,8 @@
+docker build -t gokalpgoren/vision_api:1.0.0 .
+
+docker run -d --restart unless-stopped \
+    --name vision_api-instance \
+    -p 8014:8014 \
+    -e TZ=Europe/Istanbul \
+    --restart unless-stopped \
+    gokalpgoren/vision_api:1.0.0
