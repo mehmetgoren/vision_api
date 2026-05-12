@@ -1,0 +1,184 @@
+{
+  "info": {
+    "name": "vision_api",
+    "description": "OCR API exposing /health and /ocr. /ocr is a multipart form: provide either image_bytes (base64 string) or image_file (file upload). image_file accepts any format the selected engine supports — images, PDFs, and (Kreuzberg only) office docs, HTML, email, archives, etc. Non-image inputs return per-line text predictions with zero bbox. engine selects between Kreuzberg (default) and Paddle.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://127.0.0.1:8014",
+      "type": "string"
+    },
+    {
+      "key": "base64Image",
+      "value": "",
+      "type": "string",
+      "description": "Base64-encoded image bytes (PNG/JPEG). May include a data URI prefix like 'data:image/png;base64,...'."
+    }
+  ],
+  "item": [
+    {
+      "name": "GET /health",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/health",
+          "host": ["{{baseUrl}}"],
+          "path": ["health"]
+        },
+        "description": "Liveness probe. Returns {\"status\": \"ok\"}."
+      },
+      "response": []
+    },
+    {
+      "name": "POST /ocr — image_bytes (Kreuzberg, default)",
+      "request": {
+        "method": "POST",
+        "header": [],
+        "body": {
+          "mode": "formdata",
+          "formdata": [
+            {
+              "key": "image_bytes",
+              "type": "text",
+              "value": "{{base64Image}}",
+              "description": "Base64-encoded image bytes (optionally with a data URI prefix). Checked first; if non-empty, image_file is ignored."
+            },
+            {
+              "key": "min_confidence",
+              "type": "text",
+              "value": "0.4",
+              "description": "Float between 0.0 and 1.0. Predictions below this confidence are dropped."
+            },
+            {
+              "key": "engine",
+              "type": "text",
+              "value": "Kreuzberg",
+              "description": "One of: Kreuzberg | Paddle. Default: Kreuzberg."
+            },
+            {
+              "key": "improve_accuracy",
+              "type": "text",
+              "value": "false",
+              "description": "Paddle-only HQ mode (PaddleOCRVL with doc orientation/unwarp/seal recognition). Slower. Ignored by Kreuzberg. Default: false."
+            }
+          ]
+        },
+        "url": {
+          "raw": "{{baseUrl}}/ocr",
+          "host": ["{{baseUrl}}"],
+          "path": ["ocr"]
+        },
+        "description": "Run OCR using the Kreuzberg engine (Tesseract backend).\n\nResponse shape:\n```\n{\n  \"predictions\": [\n    {\n      \"confidence\": 0.92,\n      \"label\": \"Hello\",\n      \"x_min\": 12,\n      \"y_min\": 34,\n      \"x_max\": 120,\n      \"y_max\": 60\n    }\n  ]\n}\n```"
+      },
+      "response": []
+    },
+    {
+      "name": "POST /ocr — image_file (Kreuzberg)",
+      "request": {
+        "method": "POST",
+        "header": [],
+        "body": {
+          "mode": "formdata",
+          "formdata": [
+            {
+              "key": "image_file",
+              "type": "file",
+              "src": [],
+              "description": "File to OCR (image, PDF, office doc, HTML, email, ...). Used when image_bytes is empty. Non-image inputs return per-line text predictions with zero bbox."
+            },
+            {
+              "key": "min_confidence",
+              "type": "text",
+              "value": "0.4"
+            },
+            {
+              "key": "engine",
+              "type": "text",
+              "value": "Kreuzberg"
+            },
+            {
+              "key": "improve_accuracy",
+              "type": "text",
+              "value": "false"
+            }
+          ]
+        },
+        "url": {
+          "raw": "{{baseUrl}}/ocr",
+          "host": ["{{baseUrl}}"],
+          "path": ["ocr"]
+        },
+        "description": "Run OCR on an uploaded image file (multipart upload)."
+      },
+      "response": []
+    },
+    {
+      "name": "POST /ocr — image_file (Paddle)",
+      "request": {
+        "method": "POST",
+        "header": [],
+        "body": {
+          "mode": "formdata",
+          "formdata": [
+            {
+              "key": "image_file",
+              "type": "file",
+              "src": [],
+              "description": "File to OCR. Paddle natively handles images and PDFs."
+            },
+            {
+              "key": "min_confidence",
+              "type": "text",
+              "value": "0.4"
+            },
+            {
+              "key": "engine",
+              "type": "text",
+              "value": "Paddle"
+            },
+            {
+              "key": "improve_accuracy",
+              "type": "text",
+              "value": "true",
+              "description": "When true, Paddle uses PaddleOCRVL with doc orientation/unwarp/seal recognition and OCR-for-image-block. Slower but higher quality on scanned/skewed inputs."
+            }
+          ]
+        },
+        "url": {
+          "raw": "{{baseUrl}}/ocr",
+          "host": ["{{baseUrl}}"],
+          "path": ["ocr"]
+        },
+        "description": "Run OCR using the Paddle engine (PaddleOCR). Requires container GPU access (run with --gpus all)."
+      },
+      "response": []
+    },
+    {
+      "name": "POST /ocr — both empty (expect 400)",
+      "request": {
+        "method": "POST",
+        "header": [],
+        "body": {
+          "mode": "formdata",
+          "formdata": [
+            {
+              "key": "engine",
+              "type": "text",
+              "value": "Kreuzberg"
+            }
+          ]
+        },
+        "url": {
+          "raw": "{{baseUrl}}/ocr",
+          "host": ["{{baseUrl}}"],
+          "path": ["ocr"]
+        },
+        "description": "Demonstrates the validation error. Returns:\n```\n400 {\"detail\": \"Either image_bytes (base64 string) or image_file (file upload) must be provided.\"}\n```"
+      },
+      "response": []
+    }
+  ]
+}

@@ -5,9 +5,20 @@ requires-python = ">=3.10"
 dependencies = [
     "fastapi>=0.115.0",
     "uvicorn[standard]>=0.34.0",
-    "kreuzberg>=4.8.0",
+    "kreuzberg>=4.8.5,<4.9.5",
     "pytesseract>=0.3.13",
     "Pillow>=10.0.0",
     "python-multipart>=0.0.18",
     "pybase64>=1.4.0",
+    "numpy>=1.26.0",
+    "paddleocr[doc-parser]>=3.5.0",
+    "paddlepaddle-gpu==3.2.1",
 ]
+
+[[tool.uv.index]]
+name = "paddle"
+url = "https://www.paddlepaddle.org.cn/packages/stable/cu126/"
+explicit = true
+
+[tool.uv.sources]
+paddlepaddle-gpu = { index = "paddle" }

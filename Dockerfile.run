@@ -1,8 +1,77 @@
+# vision_api — Docker build & run notes
+# =============================================================================
+# Image: built from ./Dockerfile
+# Base : nvidia/cuda:12.6.3-cudnn-runtime-ubuntu22.04
+# Reqs : Docker + (optional) NVIDIA Container Toolkit for GPU passthrough.
+# Port : 8014 (FastAPI / uvicorn)
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# 1. Build the image
+# -----------------------------------------------------------------------------
 docker build -t gokalpgoren/vision_api:1.0.0 .
 
+# Force a clean rebuild (no layer cache):
+docker build --no-cache -t gokalpgoren/vision_api:1.0.0 .
+
+
+# -----------------------------------------------------------------------------
+# 2. Run with GPU (recommended — Paddle engine requires it)
+# -----------------------------------------------------------------------------
+docker run -d --restart unless-stopped \
+    --name vision_api-instance \
+    --gpus all \
+    -p 8014:8014 \
+    -e TZ=Europe/Istanbul \
+    gokalpgoren/vision_api:1.0.0
+
+
+# -----------------------------------------------------------------------------
+# 3. Run without GPU (CPU only)
+#    Paddle requests will fail (no CUDA), but Kreuzberg (Tesseract) works.
+# -----------------------------------------------------------------------------
 docker run -d --restart unless-stopped \
     --name vision_api-instance \
     -p 8014:8014 \
     -e TZ=Europe/Istanbul \
-    --restart unless-stopped \
     gokalpgoren/vision_api:1.0.0
+
+
+# -----------------------------------------------------------------------------
+# 4. Smoke-test the running container
+# -----------------------------------------------------------------------------
+curl http://localhost:8014/health
+
+# /ocr — multipart form. Provide image_bytes (base64 string) OR image_file
+# (file upload). image_bytes wins when both are present. engine defaults to
+# Kreuzberg. If both image_bytes and image_file are empty, returns 400.
+
+# Variant A — base64 string
+curl -X POST http://localhost:8014/ocr \
+  -F "image_bytes=<base64-png-bytes>" \
+  -F "min_confidence=0.4" \
+  -F "engine=Kreuzberg"
+
+# Variant B — file upload
+curl -X POST http://localhost:8014/ocr \
+  -F "image_file=@/path/to/image.png" \
+  -F "min_confidence=0.4" \
+  -F "engine=Paddle"
+
+
+# -----------------------------------------------------------------------------
+# 5. Stop / remove
+# -----------------------------------------------------------------------------
+docker stop vision_api-instance
+docker rm vision_api-instance
+
+
+# -----------------------------------------------------------------------------
+# 6. Troubleshooting
+# -----------------------------------------------------------------------------
+# - "could not select device driver ... with capabilities: [[gpu]]"
+#   -> Install the NVIDIA Container Toolkit on the host.
+#
+# - Paddle "CUDA error / no kernel image is available"
+#   -> Host GPU/driver doesn't support CUDA 12.6. Use Kreuzberg engine, or
+#      rebuild with a paddlepaddle CPU wheel (edit pyproject.toml).
