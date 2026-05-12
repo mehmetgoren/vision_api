@@ -10,12 +10,21 @@ import pybase64
 from fastapi import FastAPI, Form, HTTPException, UploadFile
 from pydantic import BaseModel, Field
 
+from api.alpr.router import router as alpr_router
+from api.detectors.router import router as detection_router
+from api.faces.router import router as face_router
 from api.ocrs import BaseOcr, kreuzberg_ocr, paddle_ocr
 from api.pdf_detect import scan_pdf
+from api.scene.router import router as scene_router
 
 logger = logging.getLogger(__name__)
 
-app = FastAPI(title="OCR API", version="0.1.0")
+app = FastAPI(title="Vision API", version="0.2.0")
+
+app.include_router(detection_router)
+app.include_router(face_router)
+app.include_router(alpr_router)
+app.include_router(scene_router)
 
 
 class OcrEngine(str, Enum):

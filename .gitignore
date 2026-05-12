@@ -1,6 +1,9 @@
 
 .idea/
 
-api/__pycache__/
+**/__pycache__/
 
-api/ocrs/__pycache__/
+# Runtime data (face registry SQLite + embeddings) and downloaded model weights.
+# Mount these as volumes in production to persist across container rebuilds.
+data/
+models/

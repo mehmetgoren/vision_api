@@ -21,7 +21,12 @@ ENV DEBIAN_FRONTEND=noninteractive \
     UV_PROJECT_ENVIRONMENT=/app/.venv \
     PATH=/app/.venv/bin:/root/.local/bin:/usr/local/bin:/usr/bin:/bin \
     TESSDATA_PREFIX=/usr/share/tesseract-ocr/4.00/tessdata \
-    WEBSERVER_ENVIRONMENT=Container
+    WEBSERVER_ENVIRONMENT=Container \
+    FACE_REGISTRY_DIR=/app/data \
+    MODELS_DIR=/app/models \
+    INSIGHTFACE_HOME=/app/models/insightface \
+    TORCH_HOME=/app/models/torch \
+    PLACES365_WEIGHTS_DIR=/app/models/places365
 
 # System deps:
 #  - tesseract + lang packs — Kreuzberg OCR backend
@@ -53,6 +58,10 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 COPY . .
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --no-dev
+
+# Persistent volumes: /app/data (face registry SQLite + embeddings) and
+# /app/models (YOLO26 / InsightFace / Places365 / fast-alpr weights).
+RUN mkdir -p /app/data /app/models
 
 EXPOSE 8014
 

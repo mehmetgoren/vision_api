@@ -13,6 +13,12 @@ dependencies = [
     "numpy>=1.26.0",
     "paddleocr[doc-parser]>=3.5.0",
     "paddlepaddle-gpu==3.2.1",
+    "ultralytics>=8.3.0",
+    "insightface>=0.7.3",
+    "onnxruntime-gpu>=1.18.0",
+    "fast-alpr[onnx-gpu]>=0.1.0",
+    "torch>=2.4.0",
+    "torchvision>=0.19.0",
 ]
 
 [[tool.uv.index]]
@@ -20,5 +26,12 @@ name = "paddle"
 url = "https://www.paddlepaddle.org.cn/packages/stable/cu126/"
 explicit = true
 
+[[tool.uv.index]]
+name = "pytorch-cu126"
+url = "https://download.pytorch.org/whl/cu126"
+explicit = true
+
 [tool.uv.sources]
 paddlepaddle-gpu = { index = "paddle" }
+torch = { index = "pytorch-cu126" }
+torchvision = { index = "pytorch-cu126" }

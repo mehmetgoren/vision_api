@@ -4,37 +4,62 @@
 # Base : nvidia/cuda:12.6.3-cudnn-runtime-ubuntu22.04
 # Reqs : Docker + (optional) NVIDIA Container Toolkit for GPU passthrough.
 # Port : 8014 (FastAPI / uvicorn)
+#
+# Endpoints (CodeProject.AI-compatible):
+#   POST /ocr                          — OCR (Kreuzberg/Paddle)
+#   POST /v1/vision/detection          — YOLO26 object detection
+#   POST /v1/vision/face               — face detection (InsightFace)
+#   POST /v1/vision/face/recognize     — face recognition
+#   POST /v1/vision/face/register      — register faces (userid, image1..imageN)
+#   POST /v1/vision/face/list          — list registered userids
+#   POST /v1/vision/face/delete        — delete a userid
+#   POST /v1/vision/face/match         — compare two faces
+#   POST /v1/vision/alpr               — license plate reader (fast-alpr)
+#   POST /v1/image/alpr                — legacy ALPR alias
+#   POST /v1/vision/scene              — scene classifier (Places365)
+#   GET  /health                       — liveness
 # =============================================================================
 
 # -----------------------------------------------------------------------------
 # 1. Build the image
 # -----------------------------------------------------------------------------
-docker build -t gokalpgoren/vision_api:1.0.0 .
+docker build -t gokalpgoren/vision_api:2.0.0 .
 
 # Force a clean rebuild (no layer cache):
-docker build --no-cache -t gokalpgoren/vision_api:1.0.0 .
+docker build --no-cache -t gokalpgoren/vision_api:2.0.0 .
 
 
 # -----------------------------------------------------------------------------
-# 2. Run with GPU (recommended — Paddle engine requires it)
+# 2. Run with GPU (recommended)
+#    Persistent volumes keep face registry data + downloaded weights across
+#    container rebuilds. Without them, every fresh container re-downloads
+#    YOLO26 (~50MB), InsightFace buffalo_l (~300MB), Places365 (~100MB),
+#    and fast-alpr weights on first request.
 # -----------------------------------------------------------------------------
+docker volume create vision_api_data
+docker volume create vision_api_models
+
 docker run -d --restart unless-stopped \
     --name vision_api-instance \
     --gpus all \
     -p 8014:8014 \
+    -v vision_api_data:/app/data \
+    -v vision_api_models:/app/models \
     -e TZ=Europe/Istanbul \
-    gokalpgoren/vision_api:1.0.0
+    gokalpgoren/vision_api:2.0.0
 
 
 # -----------------------------------------------------------------------------
 # 3. Run without GPU (CPU only)
-#    Paddle requests will fail (no CUDA), but Kreuzberg (Tesseract) works.
+#    Paddle + YOLO26 + InsightFace will silently fall back to CPU. Slower.
 # -----------------------------------------------------------------------------
 docker run -d --restart unless-stopped \
     --name vision_api-instance \
     -p 8014:8014 \
+    -v vision_api_data:/app/data \
+    -v vision_api_models:/app/models \
     -e TZ=Europe/Istanbul \
-    gokalpgoren/vision_api:1.0.0
+    gokalpgoren/vision_api:2.0.0
 
 
 # -----------------------------------------------------------------------------
@@ -42,21 +67,42 @@ docker run -d --restart unless-stopped \
 # -----------------------------------------------------------------------------
 curl http://localhost:8014/health
 
-# /ocr — multipart form. Provide image_bytes (base64 string) OR image_file
-# (file upload). image_bytes wins when both are present. engine defaults to
-# Kreuzberg. If both image_bytes and image_file are empty, returns 400.
-
-# Variant A — base64 string
+# /ocr (existing) — see vision_api OCR docs for full options.
 curl -X POST http://localhost:8014/ocr \
-  -F "image_bytes=<base64-png-bytes>" \
-  -F "min_confidence=0.4" \
-  -F "engine=Kreuzberg"
+  -F "image_file=@/path/to/image.png" -F "engine=Paddle"
 
-# Variant B — file upload
-curl -X POST http://localhost:8014/ocr \
-  -F "image_file=@/path/to/image.png" \
-  -F "min_confidence=0.4" \
-  -F "engine=Paddle"
+# /v1/vision/detection — YOLO26
+curl -X POST http://localhost:8014/v1/vision/detection \
+  -F "image=@/path/to/people.jpg" \
+  -F "min_confidence=0.4"
+
+# /v1/vision/face — InsightFace detection
+curl -X POST http://localhost:8014/v1/vision/face \
+  -F "image=@/path/to/group.jpg"
+
+# /v1/vision/face/register — enrol a userid with one or more reference images
+curl -X POST http://localhost:8014/v1/vision/face/register \
+  -F "userid=alice" \
+  -F "image1=@/path/to/alice1.jpg" \
+  -F "image2=@/path/to/alice2.jpg"
+
+# /v1/vision/face/recognize
+curl -X POST http://localhost:8014/v1/vision/face/recognize \
+  -F "image=@/path/to/test.jpg" -F "min_confidence=0.5"
+
+# /v1/vision/face/list / delete / match
+curl -X POST http://localhost:8014/v1/vision/face/list
+curl -X POST http://localhost:8014/v1/vision/face/delete -F "userid=alice"
+curl -X POST http://localhost:8014/v1/vision/face/match \
+  -F "image1=@/path/to/a.jpg" -F "image2=@/path/to/b.jpg"
+
+# /v1/vision/alpr — fast-alpr
+curl -X POST http://localhost:8014/v1/vision/alpr \
+  -F "upload=@/path/to/car.jpg" -F "min_confidence=0.4"
+
+# /v1/vision/scene — Places365
+curl -X POST http://localhost:8014/v1/vision/scene \
+  -F "image=@/path/to/kitchen.jpg"
 
 
 # -----------------------------------------------------------------------------
@@ -72,6 +118,15 @@ docker rm vision_api-instance
 # - "could not select device driver ... with capabilities: [[gpu]]"
 #   -> Install the NVIDIA Container Toolkit on the host.
 #
-# - Paddle "CUDA error / no kernel image is available"
-#   -> Host GPU/driver doesn't support CUDA 12.6. Use Kreuzberg engine, or
-#      rebuild with a paddlepaddle CPU wheel (edit pyproject.toml).
+# - Paddle / Torch / ONNX "CUDA error / no kernel image is available"
+#   -> Host GPU/driver doesn't support CUDA 12.6. Either run without --gpus
+#      (CPU fallback for everything except Paddle), or rebuild with CPU wheels.
+#
+# - First request to /v1/vision/* is slow (~30s)
+#   -> Cold-start: weights are being downloaded. Mount vision_api_models as a
+#      volume so subsequent containers reuse the cache.
+#
+# - "InsightFace CUDA init failed"
+#   -> onnxruntime-gpu needs cuDNN. The base image includes cudnn-runtime, so
+#      this typically means a CUDA/cuDNN version mismatch with the host driver.
+#      The pipeline falls back to CPU automatically.
