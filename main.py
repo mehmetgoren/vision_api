@@ -1,12 +1,18 @@
+import logging
 import os
 
 import uvicorn
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+)
 
 
 def start_web_server():
     port = 8014
     if os.environ.get('WEBSERVER_ENVIRONMENT') == 'Container':
-        print('WEBSERVER_ENVIRONMENT: Container')
+        logging.getLogger(__name__).info("WEBSERVER_ENVIRONMENT=Container")
         return uvicorn.run('api.methods:app', host='0.0.0.0', port=port, log_level='info', reload=True)
     return uvicorn.run('api.methods:app', host='0.0.0.0', port=port, log_level='info', reload=True)
 

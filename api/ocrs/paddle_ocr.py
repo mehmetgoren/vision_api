@@ -129,12 +129,13 @@ class PaddleOcr(BaseOcr):
             if isinstance(data, dict) and "res" in data:
                 data = data["res"]
             # PaddleOCRVL nests the per-line OCR under overall_ocr_res
+            ocr_data = data
             if isinstance(data, dict) and "overall_ocr_res" in data:
-                data = data["overall_ocr_res"]
+                ocr_data = data["overall_ocr_res"]
 
-            polys = data.get("rec_polys") or data.get("dt_polys") or []
-            texts = data.get("rec_texts") or []
-            scores = data.get("rec_scores") or []
+            polys = ocr_data.get("rec_polys") or ocr_data.get("dt_polys") or []
+            texts = ocr_data.get("rec_texts") or []
+            scores = ocr_data.get("rec_scores") or []
 
             for poly, text, score in zip(polys, texts, scores):
                 label = str(text).strip()
@@ -155,6 +156,43 @@ class PaddleOcr(BaseOcr):
                         "y_min": int(min(ys)),
                         "x_max": int(max(xs)),
                         "y_max": int(max(ys)),
+                    }
+                )
+
+            # PaddleOCRVL path: block-level results in parsing_res_list.
+            parsing_list = data.get("parsing_res_list") if isinstance(data, dict) else None
+            if not parsing_list:
+                parsing_list = getattr(res, "parsing_res_list", None) or []
+
+            for block in parsing_list:
+                if isinstance(block, dict):
+                    blk_label = block.get("label") or block.get("block_label")
+                    bbox = block.get("bbox") or block.get("block_bbox")
+                    content = block.get("content") or block.get("block_content")
+                else:
+                    blk_label = getattr(block, "label", None) or getattr(block, "block_label", None)
+                    bbox = getattr(block, "bbox", None) or getattr(block, "block_bbox", None)
+                    content = getattr(block, "content", None) or getattr(block, "block_content", None)
+
+                text = str(content or "").strip()
+                if not text or bbox is None:
+                    continue
+                try:
+                    bbox_seq: list[Any] = list(bbox)  # type: ignore[arg-type]
+                except TypeError:
+                    continue
+                if len(bbox_seq) < 4:
+                    continue
+
+                predictions.append(
+                    {
+                        "confidence": 1.0,
+                        "label": text,
+                        "block_label": blk_label,
+                        "x_min": int(bbox_seq[0]),
+                        "y_min": int(bbox_seq[1]),
+                        "x_max": int(bbox_seq[2]),
+                        "y_max": int(bbox_seq[3]),
                     }
                 )
 

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import binascii
 import logging
+import time
 from enum import Enum
 from typing import Annotated, Any
 
@@ -10,6 +11,7 @@ from fastapi import FastAPI, Form, HTTPException, UploadFile
 from pydantic import BaseModel, Field
 
 from api.ocrs import BaseOcr, kreuzberg_ocr, paddle_ocr
+from api.pdf_detect import scan_pdf
 
 logger = logging.getLogger(__name__)
 
@@ -17,6 +19,7 @@ app = FastAPI(title="OCR API", version="0.1.0")
 
 
 class OcrEngine(str, Enum):
+    AUTO = "Auto"
     KREUZBERG = "Kreuzberg"
     PADDLE = "Paddle"
 
@@ -25,6 +28,18 @@ _ENGINES: dict[OcrEngine, BaseOcr] = {
     OcrEngine.KREUZBERG: kreuzberg_ocr,
     OcrEngine.PADDLE: paddle_ocr,
 }
+
+
+def _resolve_engine(engine: OcrEngine, raw: bytes) -> OcrEngine:
+    """Resolve OcrEngine.AUTO to a concrete engine based on the input bytes.
+
+    PDFs that look scanned go to Paddle; everything else (native PDFs,
+    images, office docs, etc.) goes to Kreuzberg. Non-AUTO selections pass
+    through unchanged.
+    """
+    if engine != OcrEngine.AUTO:
+        return engine
+    return OcrEngine.PADDLE if scan_pdf(raw) else OcrEngine.KREUZBERG
 
 
 class OcrRequest(BaseModel):
@@ -45,7 +60,11 @@ class OcrRequest(BaseModel):
     min_confidence: float = Field(0.4, ge=0.0, le=1.0)
     engine: OcrEngine = Field(
         OcrEngine.KREUZBERG,
-        description="OCR engine to use. Default: Kreuzberg.",
+        description=(
+            "OCR engine to use. Default: Kreuzberg. 'Auto' picks Kreuzberg "
+            "for images, office docs, and native PDFs, and Paddle for "
+            "scanned PDFs."
+        ),
     )
     improve_accuracy: bool = Field(
         False,
@@ -70,25 +89,51 @@ def _decode_base64_image(data: str) -> bytes:
 async def ocr_endpoint(payload: Annotated[OcrRequest, Form()]) -> dict[str, Any]:
     raw: bytes | None = None
     filename: str | None = None
+    source: str
     if payload.image_bytes:
         raw = _decode_base64_image(payload.image_bytes)
+        source = "image_bytes"
     elif payload.image_file is not None:
         raw = await payload.image_file.read()
         filename = payload.image_file.filename
+        source = "image_file"
+    else:
+        source = "none"
 
     if not raw:
-        logger.warning("/ocr called with neither image_bytes nor image_file")
+        logger.warning("/ocr rejected: neither image_bytes nor image_file provided")
         raise HTTPException(
             status_code=400,
             detail="Either image_bytes (base64 string) or image_file (file upload) must be provided.",
         )
 
-    return _ENGINES[payload.engine].ocr(
+    logger.info(
+        "/ocr request: engine=%s source=%s filename=%r bytes=%d "
+        "min_confidence=%.2f improve_accuracy=%s",
+        payload.engine.value, source, filename, len(raw),
+        payload.min_confidence, payload.improve_accuracy,
+    )
+
+    resolved = _resolve_engine(payload.engine, raw)
+    if payload.engine == OcrEngine.AUTO:
+        logger.info(
+            "/ocr engine=Auto resolved to %s (filename=%r)",
+            resolved.value, filename,
+        )
+
+    start = time.perf_counter()
+    result = _ENGINES[resolved].ocr(
         raw,
         payload.min_confidence,
         improve_accuracy=payload.improve_accuracy,
         filename=filename,
     )
+    elapsed_ms = (time.perf_counter() - start) * 1000.0
+    logger.info(
+        "/ocr done: engine=%s predictions=%d elapsed_ms=%.1f filename=%r",
+        resolved.value, len(result.get("predictions", [])), elapsed_ms, filename,
+    )
+    return result
 
 
 @app.get("/health")
